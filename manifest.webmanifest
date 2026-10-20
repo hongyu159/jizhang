@@ -15,9 +15,9 @@
     { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "早餐", "short_name": "早餐", "url": "./index.html?quick=早餐" },
-    { "name": "午饭", "short_name": "午饭", "url": "./index.html?quick=午饭" },
-    { "name": "地铁", "short_name": "地铁", "url": "./index.html?quick=地铁" },
+    { "name": "吃饭", "short_name": "吃饭", "url": "./index.html?quick=食" },
+    { "name": "出行", "short_name": "出行", "url": "./index.html?quick=行" },
+    { "name": "看病", "short_name": "看病", "url": "./index.html?quick=医" },
     { "name": "手动输入", "short_name": "手动", "url": "./index.html?quick=手动" }
   ]
 }

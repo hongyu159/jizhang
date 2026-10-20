@@ -161,7 +161,7 @@ body{
   color:var(--text-muted);
   font-variant-numeric:tabular-nums;
 }
-.tpl.is-manual{background:transparent;border:1px dashed var(--border);color:var(--text-muted);}
+.tpl.is-tag .tpl-name{font-size:16px;line-height:22px;font-weight:var(--weight-medium);}
 
 /* ---------------------- 流水行 ---------------------- */
 .rows{display:flex;flex-direction:column;}
@@ -572,7 +572,7 @@ textarea.input{
     <button type="button" data-page="home" class="is-on">记账</button>
     <button type="button" data-page="ledger">流水</button>
     <button type="button" data-page="stats">统计</button>
-    <button type="button" data-page="debt">借贷</button>
+    <button type="button" data-page="debt">借/贷</button>
     <button type="button" data-page="settings">设置</button>
   </nav>
 </div>
@@ -635,9 +635,21 @@ function moneySigned(n){
   const v = Number(n) || 0;
   return (v > 0 ? '+' : v < 0 ? '-' : '') + money(v);
 }
+// 大额缩写：1 万以下取整（千分位、无小数），1 万以上用“万”，最多两位小数、去掉末尾 0
+function moneyAuto(n){
+  const v = Math.abs(Number(n) || 0);
+  if(v >= 10000){
+    return (v / 10000).toFixed(2).replace(/\.?0+$/, '') + '万';
+  }
+  return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+function moneyAutoSigned(n){
+  const v = Number(n) || 0;
+  return (v > 0 ? '+' : v < 0 ? '-' : '') + moneyAuto(v);
+}
 function moneyShort(n){
   const v = Math.abs(Number(n) || 0);
-  if(v >= 10000){ return (v / 10000).toFixed(v >= 100000 ? 0 : 1) + '万'; }
+  if(v >= 10000){ return (v / 10000).toFixed(2).replace(/\.?0+$/, '') + '万'; }
   return String(Math.round(v));
 }
 function pad2(n){ return (n < 10 ? '0' : '') + n; }
@@ -693,21 +705,46 @@ function uid(prefix){
 const CATEGORIES = ['食品餐饮','购物消费','出行交通','健康医疗','居家生活','送礼人情','休闲娱乐','文化教育','工作','其他'];
 
 const SUBCATEGORIES = {
-  '食品餐饮':['正餐','早餐','外卖','生鲜','饮料酒水','零食'],
-  '购物消费':['日常家居','服饰运动','数码电器','日用百货','虚拟充值'],
-  '出行交通':['公共交通','打车','加油','停车','火车','飞机'],
-  '健康医疗':['医院','买药','体检','滋补保健'],
-  '居家生活':['房租房贷','水费','电费','燃气费','物业','快递','家政'],
-  '送礼人情':['送礼','红包','礼金'],
-  '休闲娱乐':['电影','旅游','健身','棋牌','足浴'],
-  '文化教育':['学费','培训','考试','书籍'],
-  '工作':['办公','软件','交通'],
-  '其他':['其他']
+  '食品餐饮':['早餐','午餐','晚餐','夜宵','正餐','外卖','买菜','饮料酒水','零食','烟酒','其他'],
+  '购物消费':['日常家居','服饰运动','数码电器','日用百货','家具家电','美妆护理','虚拟充值','其他'],
+  '出行交通':['公共交通','打车','加油','停车','过路费','火车','飞机','车辆保养','其他'],
+  '健康医疗':['医院','买药','体检','牙科','眼镜','滋补保健','其他'],
+  '居家生活':['房租房贷','水费','电费','燃气费','取暖费','物业','装修翻新','维修','家政','快递','话费网费','其他'],
+  '送礼人情':['送礼','红包','礼金','请客','其他'],
+  '休闲娱乐':['电影','旅游','健身','棋牌','足浴','演出','游戏','其他'],
+  '文化教育':['学费','培训','考试','书籍','文具','其他'],
+  '工作':['办公','软件','交通','差旅','应酬','其他'],
+  '其他':['保险','罚款','捐赠','手续费','其他']
 };
 
 const TAG_NAMES = ['食','住','行','衣','工','医','礼','学','娱'];
 
-// 标签按类别规则重算，不沿用旧表标签
+// 快速记账：点一下输入金额，按标签自动带类别
+const QUICK_TAGS = [
+  { tag:'食', name:'吃饭', category:'食品餐饮', sub:'',       meal:true },
+  { tag:'花', name:'日用', category:'购物消费', sub:'日常家居' },
+  { tag:'住', name:'居家', category:'居家生活', sub:'' },
+  { tag:'行', name:'出行', category:'出行交通', sub:'公共交通' },
+  { tag:'工', name:'工作', category:'工作',     sub:'办公' },
+  { tag:'医', name:'看病', category:'健康医疗', sub:'买药' },
+  { tag:'礼', name:'人情', category:'送礼人情', sub:'送礼' },
+  { tag:'学', name:'学习', category:'文化教育', sub:'书籍' },
+  { tag:'娱', name:'娱乐', category:'休闲娱乐', sub:'' },
+  { tag:'保', name:'保险', category:'其他',     sub:'保险' },
+  { tag:'',   name:'收入', category:'其他',     sub:'其他', income:true },
+  { tag:'借', name:'借还', debt:true }
+];
+
+// 按当前时间判断餐别
+function mealNow(d){
+  const h = (d || new Date()).getHours();
+  if(h >= 4 && h < 10){ return { name:'早餐', sub:'早餐' }; }
+  if(h >= 10 && h < 15){ return { name:'午餐', sub:'午餐' }; }
+  if(h >= 15 && h < 21){ return { name:'晚餐', sub:'晚餐' }; }
+  return { name:'夜宵', sub:'夜宵' };
+}
+
+// 标签按类别规则重算，不沿用旧表标签；所有支出都有标签
 function tagOf(category, sub){
   const c = category || '';
   const s = sub || '';
@@ -715,8 +752,8 @@ function tagOf(category, sub){
   if(c === '居家生活'){ return '住'; }
   if(c === '购物消费'){
     if(s.indexOf('服饰') >= 0){ return '衣'; }
-    if(s.indexOf('虚拟') >= 0){ return '娱'; }
-    return '住';
+    if(s.indexOf('虚拟') >= 0 || s.indexOf('游戏') >= 0){ return '娱'; }
+    return '花';
   }
   if(c === '出行交通'){ return '行'; }
   if(c === '健康医疗'){ return '医'; }
@@ -724,7 +761,8 @@ function tagOf(category, sub){
   if(c === '文化教育'){ return '学'; }
   if(c === '休闲娱乐'){ return '娱'; }
   if(c === '工作'){ return '工'; }
-  return '';
+  if(c === '其他'){ return s.indexOf('保险') >= 0 ? '保' : '其'; }
+  return '其';
 }
 
 const TX = {
@@ -732,10 +770,10 @@ const TX = {
   income:       { label:'收入',   dir:'in',  stat:true  },
   transfer_out: { label:'转出',   dir:'out', stat:false },
   transfer_in:  { label:'转入',   dir:'in',  stat:false },
-  debt_borrow:  { label:'借入',   dir:'in',  stat:false },
-  debt_repay:   { label:'还钱',   dir:'out', stat:false },
-  debt_lend:    { label:'借出',   dir:'out', stat:false },
-  debt_collect: { label:'收回',   dir:'in',  stat:false }
+  debt_borrow:  { label:'借',   dir:'in',  stat:false },
+  debt_repay:   { label:'还',   dir:'out', stat:false },
+  debt_lend:    { label:'贷',   dir:'out', stat:false },
+  debt_collect: { label:'收',   dir:'in',  stat:false }
 };
 const IN_TYPES = { income:1, transfer_in:1, debt_borrow:1, debt_collect:1 };
 const OUT_TYPES = { expense:1, transfer_out:1, debt_repay:1, debt_lend:1 };
@@ -785,15 +823,6 @@ const DEFAULT_SETTINGS = {
     { id:'icbc',   name:'工商银行', short:'工行', excel:'工商银行', anchor:null, anchorAt:null },
     { id:'ccb',    name:'建设银行', short:'建行', excel:'建设银行', anchor:null, anchorAt:null }
   ],
-  templates: [
-    { id:'t_breakfast', name:'早餐', amount:12, category:'食品餐饮', sub:'早餐' },
-    { id:'t_lunch',     name:'午饭', amount:25, category:'食品餐饮', sub:'正餐' },
-    { id:'t_metro',     name:'地铁', amount:3,  category:'出行交通', sub:'公共交通' },
-    { id:'t_taxi',      name:'打车', amount:30, category:'出行交通', sub:'打车' },
-    { id:'t_market',    name:'买菜', amount:50, category:'食品餐饮', sub:'生鲜' },
-    { id:'t_coffee',    name:'咖啡', amount:20, category:'食品餐饮', sub:'饮料酒水' },
-    { id:'t_medicine',  name:'药',   amount:30, category:'健康医疗', sub:'买药' }
-  ],
   lastExportAt: null,
   lastBackupWarnAt: null
 };
@@ -842,6 +871,18 @@ function dbBulk(name, list){
   }));
 }
 
+// 整表替换：清空和写入在同一个事务里，避免中途失败丢数据
+function dbReplace(name, list){
+  return dbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(name, 'readwrite');
+    const store = tx.objectStore(name);
+    store.clear();
+    list.forEach(item => store.put(item));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+
 function dbPut(name, item){
   return dbBulk(name, [item]);
 }
@@ -883,12 +924,12 @@ async function loadSettings(){
   const s = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   Object.keys(saved).forEach(k => { s[k] = saved[k]; });
   if(!Array.isArray(s.accounts) || !s.accounts.length){ s.accounts = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.accounts)); }
-  if(!Array.isArray(s.templates)){ s.templates = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.templates)); }
   return s;
 }
 
 async function saveSettings(settings){
   await dbBulk('settings', [{ key:'app', value:settings }]);
+  if(typeof scheduleMirror === 'function'){ scheduleMirror(); }
 }
 
 /* ---------------------- 派生数据 ---------------------- */
@@ -1366,7 +1407,7 @@ async function importRecords(parsed, settings, records, treatRepayAsDebt){
       amount: row.amount,
       account: acc.id,
       toAccount: null,
-      category: isDebt ? '借贷' : row.category,
+      category: isDebt ? '借/贷' : row.category,
       srcCategory: row.category,
       sub: row.sub,
       tag: isDebt ? '' : tagOf(row.category, row.sub),
@@ -1417,16 +1458,16 @@ function recordToRow(rec, settings){
       row[9] = '转账←' + (accountById(settings, rec.toAccount) || {}).name + (rec.note ? ' · ' + rec.note : '');
       break;
     case 'debt_borrow':
-      signed = rec.amount; kind = '收入'; row[3] = '借贷'; row[9] = '借入·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
+      signed = rec.amount; kind = '收入'; row[3] = '借/贷'; row[9] = '借·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
       break;
     case 'debt_repay':
-      signed = -rec.amount; kind = '支出'; row[3] = '借贷'; row[9] = '还钱·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
+      signed = -rec.amount; kind = '支出'; row[3] = '借/贷'; row[9] = '还·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
       break;
     case 'debt_lend':
-      signed = -rec.amount; kind = '支出'; row[3] = '借贷'; row[9] = '借出·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
+      signed = -rec.amount; kind = '支出'; row[3] = '借/贷'; row[9] = '贷·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
       break;
     case 'debt_collect':
-      signed = rec.amount; kind = '收入'; row[3] = '借贷'; row[9] = '收回·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
+      signed = rec.amount; kind = '收入'; row[3] = '借/贷'; row[9] = '收·' + (rec.party || '') + (rec.note ? ' · ' + rec.note : '');
       break;
     default:
       signed = -rec.amount;
@@ -1437,7 +1478,29 @@ function recordToRow(rec, settings){
   return row;
 }
 
-function exportXlsx(records, settings){
+function xlsxFileName(){
+  return '账单_' + dateKey(nowISO()).replace(/-/g, '') + '.xlsx';
+}
+
+// 备份页：账户设置和全部记录（含期初、历史账），用于一键恢复
+function buildBackupSheet(records, settings){
+  const s = Object.assign({}, settings);
+  delete s.excelHandle;
+  const aoa = [
+    ['记账 App 完整备份（请勿修改此页）', ''],
+    ['格式', 'jizhang-backup-v1'],
+    ['时间', nowISO()],
+    ['设置', JSON.stringify(s)],
+    ['记录数', String(records.length)],
+    ['说明', '每行一条记录的 JSON，恢复时使用']
+  ];
+  records.forEach(r => aoa.push([JSON.stringify(r)]));
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 18 }, { wch: 80 }];
+  return ws;
+}
+
+function buildXlsxArray(records, settings){
   const list = records.filter(r => !r.opening).sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   const aoa = [EXCEL_HEADERS.slice()];
   list.forEach(r => aoa.push(recordToRow(r, settings)));
@@ -1448,7 +1511,107 @@ function exportXlsx(records, settings){
   }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '账单');
-  XLSX.writeFile(wb, '账单_' + dateKey(nowISO()).replace(/-/g, '') + '.xlsx');
+  XLSX.utils.book_append_sheet(wb, buildBackupSheet(records, settings), '备份');
+  return XLSX.write(wb, { bookType:'xlsx', type:'array' });
+}
+
+// 读取完整备份；不是 App 备份文件时返回 null
+function parseBackupXlsx(file){
+  return file.arrayBuffer().then(buf => {
+    const wb = XLSX.read(buf, { type:'array' });
+    if(wb.SheetNames.indexOf('备份') < 0){ return null; }
+    const ws = wb.Sheets['备份'];
+    const rows = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, defval:'' });
+    const map = {};
+    rows.slice(0, 6).forEach(r => {
+      if(r && r[0]){ map[String(r[0]).trim()] = r[1]; }
+    });
+    if(String(map['格式'] || '').trim() !== 'jizhang-backup-v1'){ return null; }
+    let settings = {};
+    try{ settings = JSON.parse(map['设置'] || '{}'); }catch(e){ return null; }
+    const records = [];
+    for(let i = 6; i < rows.length; i++){
+      const cell = rows[i] && rows[i][0];
+      if(!cell || String(cell).charAt(0) !== '{'){ continue; }
+      try{ records.push(JSON.parse(cell)); }catch(e){}
+    }
+    return { settings: settings, records: records };
+  });
+}
+
+function exportXlsx(records, settings){
+  const data = buildXlsxArray(records, settings);
+  const blob = new Blob([data], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  downloadBlob(blob, xlsxFileName());
+}
+
+/* ---------------------- 直接写入 Excel 文件 ---------------------- */
+function excelFileSupported(){
+  return typeof window.showSaveFilePicker === 'function';
+}
+
+// 选择或新建一个 xlsx，返回可复用的文件句柄
+function pickExcelFile(){
+  return window.showSaveFilePicker({
+    suggestedName: '账单.xlsx',
+    types: [{
+      description: 'Excel 工作簿',
+      accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }
+    }]
+  });
+}
+
+// 读取已有 xlsx 的数据行数，绑定前用于防止误覆盖
+async function countExcelRows(handle){
+  try{
+    const file = await handle.getFile();
+    if(!file || !file.size){ return 0; }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return ws ? Math.max(0, XLSX.utils.sheet_to_json(ws, { header:1 }).length - 1) : 0;
+  }catch(e){ return 0; }
+}
+
+// 把全部记录写成 xlsx 覆盖到句柄对应的文件；interactive=true 时才主动申请权限
+async function writeExcelToHandle(handle, interactive){
+  if(!handle || typeof handle.createWritable !== 'function'){ return false; }
+  try{
+    let perm = 'granted';
+    if(handle.queryPermission){ perm = await handle.queryPermission({ mode:'readwrite' }); }
+    if(perm !== 'granted' && interactive && handle.requestPermission){
+      perm = await handle.requestPermission({ mode:'readwrite' });
+    }
+    if(perm !== 'granted'){ return false; }
+    const data = buildXlsxArray(App.records, App.settings);
+    const writable = await handle.createWritable();
+    await writable.write(new Blob([data], {
+      type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    }));
+    await writable.close();
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
+// 手机上直接调系统分享，可发到微信/网盘；不支持时退回下载
+async function shareXlsx(records, settings){
+  const data = buildXlsxArray(records, settings);
+  const file = new File([data], xlsxFileName(), {
+    type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  if(navigator.canShare && navigator.canShare({ files:[file] })){
+    try{
+      await navigator.share({ files:[file], title:'记账备份' });
+      return true;
+    }catch(err){
+      if(err && err.name === 'AbortError'){ return true; }
+    }
+  }
+  const blob = new Blob([data], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  downloadBlob(blob, xlsxFileName());
+  return false;
 }
 
 function exportCsv(records, settings){
@@ -1495,7 +1658,8 @@ const App = {
     debtTab: 'owe'
   },
   toastTimer: null,
-  undoFn: null
+  undoFn: null,
+  excelPerm: 'none'
 };
 
 function escapeHtml(s){
@@ -1513,16 +1677,136 @@ function accountShort(id){
   return a ? a.short : (id || '');
 }
 
+/* ---------------------- 本机镜像与存储状态 ---------------------- */
+const MIRROR_KEY = 'jizhang_mirror_v1';
+let mirrorTimer = null;
+
+// localStorage 镜像：IndexedDB 被清空时用来兜底
+function mirrorData(){
+  try{
+    const settings = Object.assign({}, App.settings);
+    delete settings.excelHandle;
+    localStorage.setItem(MIRROR_KEY, JSON.stringify({
+      at: nowISO(),
+      settings: settings,
+      records: App.records
+    }));
+  }catch(e){}
+}
+function scheduleMirror(){
+  if(mirrorTimer){ clearTimeout(mirrorTimer); }
+  mirrorTimer = setTimeout(mirrorData, 600);
+}
+function readMirror(){
+  try{
+    const raw = localStorage.getItem(MIRROR_KEY);
+    if(!raw){ return null; }
+    const obj = JSON.parse(raw);
+    return obj && Array.isArray(obj.records) ? obj : null;
+  }catch(e){ return null; }
+}
+// 是否已绑定可写的 Excel 文件
+function hasExcelHandle(){
+  return !!(App.settings && App.settings.excelHandle && typeof App.settings.excelHandle.createWritable === 'function');
+}
+
+// 启动时查询 Excel 写权限，不主动弹授权
+async function refreshExcelPermission(){
+  if(!hasExcelHandle()){ App.excelPerm = 'none'; return; }
+  try{
+    App.excelPerm = App.settings.excelHandle.queryPermission
+      ? await App.settings.excelHandle.queryPermission({ mode:'readwrite' })
+      : 'granted';
+  }catch(e){ App.excelPerm = 'prompt'; }
+}
+
+// 记账后自动把整表写回绑定的 xlsx；连续记账时合并写入
+let excelTimer = null;
+let excelWriting = false;
+let excelDirty = false;
+
+async function flushExcelWrite(){
+  if(!hasExcelHandle() || !App.records.length){ return; }
+  if(excelWriting){ excelDirty = true; return; }
+  excelWriting = true;
+  try{
+    do{
+      excelDirty = false;
+      const ok = await writeExcelToHandle(App.settings.excelHandle, false);
+      if(ok){
+        App.excelPerm = 'granted';
+        App.settings.excelWriteAt = nowISO();
+        App.settings.lastExportAt = nowISO();
+        await saveSettings(App.settings);
+      } else if(!App.excelWarned){
+        App.excelPerm = 'prompt';
+        App.excelWarned = true;
+        showToast('Excel 还没写入，请到设置点“写入 Excel”重新授权', null);
+      }
+    } while(excelDirty);
+  } finally {
+    excelWriting = false;
+  }
+}
+
+function scheduleExcelWrite(){
+  if(!hasExcelHandle() || !App.records.length){ return; }
+  if(excelTimer){ clearTimeout(excelTimer); }
+  excelTimer = setTimeout(flushExcelWrite, 600);
+}
+
+async function initStorage(){
+  const ua = navigator.userAgent || '';
+  let browser = '其他浏览器';
+  if(/SamsungBrowser/i.test(ua)){ browser = '三星浏览器'; }
+  else if(/EdgA|Edg\//i.test(ua)){ browser = 'Edge'; }
+  else if(/Chrome\//i.test(ua)){ browser = 'Chrome'; }
+  const supported = !!(navigator.storage && navigator.storage.persist);
+  let persisted = false;
+  try{
+    if(navigator.storage && navigator.storage.persisted){ persisted = await navigator.storage.persisted(); }
+    if(supported && !persisted){
+      persisted = await Promise.race([
+        navigator.storage.persist().catch(() => false),
+        new Promise(resolve => setTimeout(() => resolve(false), 1500))
+      ]);
+    }
+  }catch(e){}
+  const standalone = !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  return { browser: browser, supported: supported, persisted: persisted, standalone: standalone };
+}
+
 /* ---------------------- 启动 ---------------------- */
 async function boot(){
   try{
+    App.storage = await initStorage();
     await dbOpen();
     App.settings = await loadSettings();
     App.records = await dbAll('records');
+    let restored = 0;
+    if(!App.records.length){
+      const m = readMirror();
+      if(m && m.records.length){
+        App.records = m.records;
+        await dbBulk('records', App.records);
+        if(m.settings && Array.isArray(m.settings.accounts) && m.settings.accounts.length){
+          App.settings = Object.assign({}, App.settings, m.settings);
+        }
+        restored = App.records.length;
+      }
+    }
+    const retagged = await normalizeTags(App.records);
     if(!App.settings.accounts.length){ App.settings.accounts = DEFAULT_SETTINGS.accounts.slice(); }
-    if(!accountById(App.settings, App.ui.account)){ App.ui.account = App.settings.accounts[0].id; }
+    if(!accountById(App.ui.account)){ App.ui.account = App.settings.accounts[0].id; }
     await saveSettings(App.settings);
+    scheduleMirror();
+    await refreshExcelPermission();
     render();
+    if(restored){
+      showToast('已从本机镜像恢复 ' + restored + ' 条记录', null);
+    } else if(retagged){
+      showToast('已为 ' + retagged + ' 条记录补齐标签', null);
+    }
     handleQuickAction();
     registerServiceWorker();
   }catch(err){
@@ -1537,7 +1821,7 @@ function registerServiceWorker(){
   }
 }
 
-// 桌面长按图标的快捷方式：?quick=早餐
+// 桌面长按图标的快捷方式：?quick=食
 function handleQuickAction(){
   let quick = '';
   try{
@@ -1549,13 +1833,17 @@ function handleQuickAction(){
     openEntrySheet();
     return;
   }
-  const tpl = App.settings.templates.find(t => t.name === quick);
-  if(tpl){ quickAdd(tpl); }
+  const alias = { '餐饮':'食', '早餐':'食', '午饭':'食', '午餐':'食', '地铁':'行', '打车':'行' };
+  const key = alias[quick] || quick;
+  const item = QUICK_TAGS.find(t => t.tag === key || t.name === key);
+  if(!item){ return; }
+  if(item.debt){ openDebtSheet({ type:'debt_borrow' }); return; }
+  openQuickSheet(item);
 }
 
 /* ---------------------- 路由 ---------------------- */
 const PAGE_TITLE = {
-  home: '记账', ledger: '流水', stats: '统计', debt: '借贷', settings: '设置'
+  home: '记账', ledger: '流水', stats: '统计', debt: '借/贷', settings: '设置'
 };
 
 function render(){
@@ -1587,7 +1875,7 @@ function pageSub(page){
     if(App.ui.statsMode === 'year'){ return App.ui.statsYear + '年'; }
     return '全部';
   }
-  if(page === 'debt'){ return '往来账'; }
+  if(page === 'debt'){ return '借、还、贷、收'; }
   return 'v1.0';
 }
 
@@ -1628,13 +1916,62 @@ function renderHome(view){
     view.appendChild(warn);
   }
 
+  // 三星浏览器存储提醒
+  if(App.storage && App.storage.browser === '三星浏览器' && !App.storage.persisted && !App.settings.hideStorageWarn){
+    const warn = el('div', 'list-item');
+    warn.style.padding = '8px 0';
+    const t = el('div', 'li-main');
+    t.appendChild(el('div', 'li-title', '数据可能被三星浏览器清掉'));
+    t.appendChild(el('div', 'li-sub', '设置 → 隐私 → 关闭“退出时删除浏览数据”，或改用 Chrome'));
+    warn.appendChild(t);
+    const wrap = el('div', 'li-action');
+    const btn = el('button', 'btn', '知道了');
+    btn.type = 'button';
+    btn.addEventListener('click', () => {
+      App.settings.hideStorageWarn = true;
+      saveSettings(App.settings).then(render);
+    });
+    wrap.appendChild(btn);
+    warn.appendChild(wrap);
+    view.appendChild(warn);
+  }
+
+  // Excel 权限恢复提醒
+  if(hasExcelHandle() && App.excelPerm !== 'granted'){
+    const warn = el('div', 'list-item');
+    warn.style.padding = '8px 0';
+    const t = el('div', 'li-main');
+    t.appendChild(el('div', 'li-title', 'Excel 自动写入已暂停'));
+    t.appendChild(el('div', 'li-sub', '点“恢复”授权一次，之后记账仍会自动写'));
+    warn.appendChild(t);
+    const wrap = el('div', 'li-action');
+    const btn = el('button', 'btn', '恢复');
+    btn.type = 'button';
+    btn.addEventListener('click', async () => {
+      const ok = await writeExcelToHandle(App.settings.excelHandle, true);
+      if(ok){
+        App.excelPerm = 'granted';
+        App.settings.excelWriteAt = nowISO();
+        App.settings.lastExportAt = nowISO();
+        await saveSettings(App.settings);
+        render();
+        showToast('已恢复 Excel 自动写入', null);
+      } else {
+        showToast('恢复失败，请到设置重新绑定 Excel', null);
+      }
+    });
+    wrap.appendChild(btn);
+    warn.appendChild(wrap);
+    view.appendChild(warn);
+  }
+
   // KPI
   const kpi = el('div', 'kpi');
   kpi.appendChild(el('span', 'kpi-label', '本月支出'));
-  kpi.appendChild(el('span', 'kpi-num', '¥' + money(monthSpend)));
+  kpi.appendChild(el('span', 'kpi-num', '¥' + moneyAuto(monthSpend)));
   const todayBox = el('span', 'kpi-today');
   todayBox.appendChild(document.createTextNode('今日 '));
-  const todayB = el('b', null, '¥' + money(todaySpend));
+  const todayB = el('b', null, '¥' + moneyAuto(todaySpend));
   todayBox.appendChild(todayB);
   kpi.appendChild(todayBox);
   view.appendChild(kpi);
@@ -1663,7 +2000,7 @@ function renderHome(view){
     btn.type = 'button';
     btn.appendChild(el('span', 'account-name', acc.short));
     const balEl = el('span', 'account-bal' + (bal === null ? ' is-empty' : ''),
-      bal === null ? '未校准' : '≈¥' + money(bal));
+      bal === null ? '未校准' : '≈¥' + moneyAuto(bal));
     btn.appendChild(balEl);
     btn.addEventListener('click', () => {
       const changed = acc.id !== App.ui.account;
@@ -1686,20 +2023,18 @@ function renderHome(view){
   view.appendChild(tplHead);
 
   const grid = el('div', 'templates');
-  App.settings.templates.forEach(t => {
-    const btn = el('button', 'tpl');
+  QUICK_TAGS.forEach(t => {
+    const meal = t.meal ? mealNow() : null;
+    const btn = el('button', 'tpl is-tag');
     btn.type = 'button';
     btn.appendChild(el('span', 'tpl-name', t.name));
-    btn.appendChild(el('span', 'tpl-amt', String(t.amount)));
-    btn.addEventListener('click', () => quickAdd(t));
+    if(meal){ btn.appendChild(el('span', 'tpl-amt', meal.name)); }
+    btn.addEventListener('click', () => {
+      if(t.debt){ openDebtSheet({ type:'debt_borrow' }); return; }
+      openQuickSheet(t);
+    });
     grid.appendChild(btn);
   });
-  const manual = el('button', 'tpl is-manual');
-  manual.type = 'button';
-  manual.appendChild(el('span', 'tpl-name', '手动'));
-  manual.appendChild(el('span', 'tpl-amt', '输入'));
-  manual.addEventListener('click', () => openEntrySheet());
-  grid.appendChild(manual);
   view.appendChild(grid);
 
   // 今日流水
@@ -1732,29 +2067,52 @@ function backupAgeText(){
   return '上次导出 ' + days + ' 天前，建议每周导一次';
 }
 
-function quickAdd(tpl){
-  const rec = {
-    id: uid('r'),
-    ts: nowISO(),
-    type: 'expense',
-    amount: Number(tpl.amount) || 0,
-    account: App.ui.account,
-    toAccount: null,
-    category: tpl.category,
-    sub: tpl.sub || '',
-    tag: tagOf(tpl.category, tpl.sub),
-    note: tpl.name,
-    groupId: null,
-    party: '',
-    historical: false,
-    readonly: false,
-    createdAt: nowISO()
-  };
-  saveRecord(rec).then(() => {
+// 快速记账：只填金额，输完自动保存，不点保存按钮
+function openQuickSheet(t){
+  const meal = t.meal ? mealNow() : null;
+  const label = meal ? meal.name : t.name;
+  const isIncome = !!t.income;
+  openSheet(
+    '<div class="sheet-head"><span class="sheet-title">' + escapeHtml(label) + '</span></div>' +
+    '<div class="field"><label class="field-label">金额</label>' +
+    '<input class="input is-amount" id="quickAmount" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off"></div>' +
+    '<div class="preview">' +
+    '<div class="preview-row"><span>账户</span><b>' + escapeHtml(accountName(App.ui.account)) + '</b></div>' +
+    '<div class="preview-row"><span>' + (isIncome ? '类型' : '类别') + '</span><b>' +
+      (isIncome ? '收入' : escapeHtml(t.category) + (meal ? ' · ' + escapeHtml(meal.name) : '')) + '</b></div>' +
+    '</div>' +
+    '<div class="hint">输入后点键盘“完成”或空白处，自动保存</div>'
+  );
+
+  const input = $('#quickAmount');
+  input.focus();
+  let saving = false;
+  input.addEventListener('change', async () => {
+    if(saving){ return; }
+    const v = parseFloat(String(input.value).replace(/,/g, ''));
+    if(!isFinite(v) || v <= 0){ closeSheet(); return; }
+    saving = true;
+    const rec = {
+      id: uid('r'),
+      ts: nowISO(),
+      type: isIncome ? 'income' : 'expense',
+      amount: round2(v),
+      account: App.ui.account,
+      toAccount: null,
+      category: t.category,
+      sub: meal ? meal.sub : (t.sub || ''),
+      tag: t.tag || '',
+      note: label,
+      groupId: null,
+      party: '',
+      historical: false,
+      readonly: false,
+      createdAt: nowISO()
+    };
+    await saveRecord(rec);
+    closeSheet();
     render();
-    showToast('已记 ' + tpl.name + ' ¥' + money(rec.amount) + ' · ' + accountName(rec.account), () => {
-      deleteRecordById(rec.id);
-    });
+    showToast('已记 ' + label + ' ¥' + money(v) + ' · ' + accountShort(rec.account), () => deleteRecordById(rec.id));
   });
 }
 
@@ -1765,10 +2123,10 @@ function recordTitle(r){
   if(t === 'income'){ return r.note || r.category || '收入'; }
   if(t === 'transfer_out'){ return '转账 → ' + accountShort(r.toAccount); }
   if(t === 'transfer_in'){ return '转账 ← ' + accountShort(r.toAccount); }
-  if(t === 'debt_borrow'){ return '借入 · ' + (r.party || ''); }
-  if(t === 'debt_repay'){ return '还钱 · ' + (r.party || ''); }
-  if(t === 'debt_lend'){ return '借出 · ' + (r.party || ''); }
-  if(t === 'debt_collect'){ return '收回 · ' + (r.party || ''); }
+  if(t === 'debt_borrow'){ return '借 · ' + (r.party || ''); }
+  if(t === 'debt_repay'){ return '还 · ' + (r.party || ''); }
+  if(t === 'debt_lend'){ return '贷 · ' + (r.party || ''); }
+  if(t === 'debt_collect'){ return '收 · ' + (r.party || ''); }
   return t;
 }
 
@@ -1776,7 +2134,7 @@ function recordBadge(r){
   if(r.type === 'expense' && r.tag){ return { text:r.tag, cls:'' }; }
   if(r.type === 'income'){ return { text:'入', cls:'is-neutral' }; }
   if(r.type.indexOf('transfer') === 0){ return { text:'转', cls:'is-neutral' }; }
-  if(r.type.indexOf('debt') === 0){ return { text:'借', cls:'is-neutral' }; }
+  if(r.type.indexOf('debt') === 0){ return { text:(TX[r.type] || {}).label || '借', cls:'is-neutral' }; }
   return null;
 }
 
@@ -1827,8 +2185,8 @@ function renderLedger(view){
   const sum = el('div', 'sum');
   sum.style.marginTop = '12px';
   [
-    { label:'支出', value:'¥' + money(spend), cls:'' },
-    { label:'收入', value:'¥' + money(income), cls:'is-in' },
+    { label:'支出', value:'¥' + moneyAuto(spend), cls:'' },
+    { label:'收入', value:'¥' + moneyAuto(income), cls:'is-in' },
     { label:'笔数', value:String(list.length), cls:'' }
   ].forEach(item => {
     const box = el('div', 'sum-item');
@@ -1854,7 +2212,7 @@ function renderLedger(view){
     left.appendChild(el('b', null, k.slice(5).replace('-', '月') + '日'));
     left.appendChild(document.createTextNode(' ' + weekdayCN(k)));
     head.appendChild(left);
-    head.appendChild(el('span', null, daySpend > 0 ? '支出 ¥' + money(daySpend) : ''));
+    head.appendChild(el('span', null, daySpend > 0 ? '支出 ¥' + moneyAuto(daySpend) : ''));
     view.appendChild(head);
 
     const rows = el('div', 'rows');
@@ -1910,9 +2268,9 @@ function renderStats(view){
   const sum = el('div', 'sum');
   sum.style.marginTop = '12px';
   [
-    { label:'支出', value:'¥' + money(st.spend), cls:'' },
-    { label:'收入', value:'¥' + money(st.income), cls:'is-in' },
-    { label:'结余', value:moneySigned(st.net), cls: st.net >= 0 ? 'is-in' : '' }
+    { label:'支出', value:'¥' + moneyAuto(st.spend), cls:'' },
+    { label:'收入', value:'¥' + moneyAuto(st.income), cls:'is-in' },
+    { label:'结余', value:moneyAutoSigned(st.net), cls: st.net >= 0 ? 'is-in' : '' }
   ].forEach(item => {
     const box = el('div', 'sum-item');
     box.appendChild(el('span', 'sum-label', item.label));
@@ -1921,7 +2279,7 @@ function renderStats(view){
   });
   view.appendChild(sum);
 
-  view.appendChild(el('div', 'meta', st.count + ' 笔 · ' + st.avgLabel + ' ' + money(st.avg) + ' · ' + st.rangeLabel));
+  view.appendChild(el('div', 'meta', st.count + ' 笔 · ' + st.avgLabel + ' ' + moneyAuto(st.avg) + ' · ' + st.rangeLabel));
 
   // 标签
   const tagSec = el('div', 'section-head');
@@ -1941,7 +2299,7 @@ function renderStats(view){
       fill.style.width = Math.max(1, t.pct).toFixed(1) + '%';
       track.appendChild(fill);
       row.appendChild(track);
-      row.appendChild(el('span', 'tag-val', money(t.amount)));
+      row.appendChild(el('span', 'tag-val', moneyAuto(t.amount)));
       view.appendChild(row);
     });
   }
@@ -1982,11 +2340,11 @@ function renderStats(view){
     const l1 = el('div', 'legend-item');
     l1.appendChild(el('i'));
     l1.appendChild(el('span', null, String(st.cumulative.yearA)));
-    l1.appendChild(el('b', null, money(st.cumulative.lastA)));
+    l1.appendChild(el('b', null, moneyAuto(st.cumulative.lastA)));
     const l2 = el('div', 'legend-item is-old');
     l2.appendChild(el('i'));
     l2.appendChild(el('span', null, String(st.cumulative.yearB)));
-    l2.appendChild(el('b', null, money(st.cumulative.lastB)));
+    l2.appendChild(el('b', null, moneyAuto(st.cumulative.lastB)));
     legend.appendChild(l1); legend.appendChild(l2);
     view.appendChild(legend);
 
@@ -2005,7 +2363,7 @@ function renderStats(view){
       const row = el('div', 'cat-row');
       row.appendChild(el('span', 'cat-name', c.name));
       row.appendChild(el('span', 'cat-meta', c.count + ' 笔 · ' + c.pct.toFixed(1) + '%'));
-      row.appendChild(el('span', 'cat-amt', money(c.amount)));
+      row.appendChild(el('span', 'cat-amt', moneyAuto(c.amount)));
       view.appendChild(row);
     });
   }
@@ -2013,10 +2371,10 @@ function renderStats(view){
   // 口径说明
   const foot = el('div', 'foot-note');
   const parts = [];
-  if(st.excluded.transferCount){ parts.push('已剔除转账 ' + st.excluded.transferCount + ' 笔 ¥' + money(st.excluded.transferAmount)); }
-  if(st.excluded.debtCount){ parts.push('借贷 ' + st.excluded.debtCount + ' 笔 ¥' + money(st.excluded.debtAmount)); }
-  if(st.bigCount){ parts.push('大额（≥¥500）' + st.bigCount + ' 笔 ¥' + money(st.bigAmount)); }
-  if(!parts.length){ parts.push('统计只含消费支出与收入'); }
+  if(st.excluded.transferCount){ parts.push('已剔除转账 ' + st.excluded.transferCount + ' 笔 ¥' + moneyAuto(st.excluded.transferAmount)); }
+  if(st.excluded.debtCount){ parts.push('借/贷 ' + st.excluded.debtCount + ' 笔 ¥' + moneyAuto(st.excluded.debtAmount)); }
+  if(st.bigCount){ parts.push('大额（≥¥500）' + st.bigCount + ' 笔 ¥' + moneyAuto(st.bigAmount)); }
+  if(!parts.length){ parts.push('统计只含消费支出与收入，借/贷往来不计入'); }
   foot.textContent = parts.join(' · ');
   view.appendChild(foot);
 }
@@ -2081,11 +2439,12 @@ function renderDebt(view){
   const history = historicalDebtSummary(App.records);
   const tab = App.ui.debtTab;
 
+  const netBorrow = round2(totals.owe - totals.lend);
   const sum = el('div', 'sum');
   [
-    { label:'我欠', value:'¥' + money(totals.owe), cls:'is-neg' },
-    { label:'欠我', value:'¥' + money(totals.lend), cls:'' },
-    { label:'净往来', value:moneySigned(totals.net), cls: totals.net >= 0 ? 'is-in' : 'is-neg' }
+    { label:'借', value:'¥' + moneyAuto(totals.owe), cls:'is-neg' },
+    { label:'贷', value:'¥' + moneyAuto(totals.lend), cls:'' },
+    { label:'差额', value:moneyAutoSigned(netBorrow), cls: netBorrow > 0 ? 'is-neg' : (netBorrow < 0 ? 'is-in' : '') }
   ].forEach(item => {
     const box = el('div', 'sum-item');
     box.appendChild(el('span', 'sum-label', item.label));
@@ -2094,7 +2453,7 @@ function renderDebt(view){
   });
   view.appendChild(sum);
 
-  const addBtn = el('button', 'btn is-primary is-block', '+ 记一笔借贷');
+  const addBtn = el('button', 'btn is-primary is-block', '+ 记一笔借/贷');
   addBtn.type = 'button';
   addBtn.style.marginTop = '12px';
   addBtn.addEventListener('click', () => openDebtSheet());
@@ -2111,7 +2470,7 @@ function renderDebt(view){
 
   const seg = el('div', 'seg');
   seg.style.marginTop = '12px';
-  [['owe','我欠的'],['lend','欠我的'],['history','历史还款']].forEach(item => {
+  [['owe','借'],['lend','贷'],['history','历史']].forEach(item => {
     const b = el('button', null, item[1]);
     b.type = 'button';
     if(tab === item[0]){ b.classList.add('is-on'); }
@@ -2128,10 +2487,10 @@ function renderDebt(view){
       cnt += h.count;
     });
     view.appendChild(el('div', 'meta',
-      '历史借贷 ' + cnt + ' 笔 · ' + history.length + ' 个对象 · 借入 ¥' + money(borrowTotal) + ' · 已还 ¥' + money(repayTotal)));
+      '历史借/贷 ' + cnt + ' 笔 · ' + history.length + ' 个对象 · 借 ¥' + moneyAuto(borrowTotal) + ' · 还 ¥' + moneyAuto(repayTotal)));
 
     if(!history.length){
-      view.appendChild(el('div', 'empty', '没有导入的借贷记录'));
+      view.appendChild(el('div', 'empty', '没有导入的借/贷记录'));
       return;
     }
 
@@ -2140,31 +2499,31 @@ function renderDebt(view){
     history.forEach(h => {
       const row = el('div', 'debt-row');
       const main = el('div', 'debt-main');
-      main.style.cursor = 'default';
       main.appendChild(el('span', 'debt-name', h.name));
 
       const parts = [];
-      if(h.borrow){ parts.push('借入 ' + money(h.borrow)); }
-      if(h.repay){ parts.push('已还 ' + money(h.repay)); }
-      if(h.lend){ parts.push('借出 ' + money(h.lend)); }
-      if(h.collect){ parts.push('收回 ' + money(h.collect)); }
+      if(h.borrow){ parts.push('借 ' + moneyAuto(h.borrow)); }
+      if(h.repay){ parts.push('还 ' + moneyAuto(h.repay)); }
+      if(h.lend){ parts.push('贷 ' + moneyAuto(h.lend)); }
+      if(h.collect){ parts.push('收 ' + moneyAuto(h.collect)); }
       main.appendChild(el('span', 'debt-meta', (h.lastTs ? dateKey(h.lastTs).slice(5) + ' · ' : '') + parts.join(' · ')));
 
-      const netText = (h.net > 0 ? '+' : h.net < 0 ? '-' : '') + '¥' + money(h.net);
+      const netText = (h.net > 0 ? '+' : h.net < 0 ? '-' : '') + '¥' + moneyAuto(h.net);
       main.appendChild(el('span', 'debt-amt' + (h.net > 0 ? ' is-neg' : ''), netText));
+      main.addEventListener('click', () => openPersonSheet(h.name));
       row.appendChild(main);
       list.appendChild(row);
     });
     view.appendChild(list);
 
-    view.appendChild(el('div', 'foot-note', '差额 = 借入 − 已还；正数是我欠，负数表示只有还款记录、没有借入记录。历史旧账可能没入全，只作对照'));
+    view.appendChild(el('div', 'foot-note', '差额 = 借 − 还 − 贷 + 收；正数表示净借，负数表示净贷。历史旧账可能没入全，只作对照'));
     return;
   }
 
   const rowsData = totals.list.filter(m => tab === 'owe' ? Math.abs(m.owe) > 0.005 : Math.abs(m.lend) > 0.005);
 
   if(!rowsData.length){
-    view.appendChild(el('div', 'empty', tab === 'owe' ? '没有欠款' : '没有借出'));
+    view.appendChild(el('div', 'empty', tab === 'owe' ? '没有借' : '没有贷'));
     return;
   }
 
@@ -2177,7 +2536,7 @@ function renderDebt(view){
     const main = el('div', 'debt-main');
     main.appendChild(el('span', 'debt-name', m.name));
     main.appendChild(el('span', 'debt-meta', '最近 ' + (m.lastTs ? dateKey(m.lastTs).slice(5) : '—') + ' · ' + m.count + ' 笔'));
-    main.appendChild(el('span', 'debt-amt' + (tab === 'owe' ? ' is-neg' : ''), '¥' + money(amount)));
+    main.appendChild(el('span', 'debt-amt' + (tab === 'owe' ? ' is-neg' : ''), '¥' + moneyAuto(amount)));
     row.appendChild(main);
 
     const acts = el('div', 'debt-actions');
@@ -2185,18 +2544,24 @@ function renderDebt(view){
       const b1 = el('button', null, '再借');
       b1.type = 'button';
       b1.addEventListener('click', () => openDebtSheet({ party:m.name, type:'debt_borrow' }));
-      const b2 = el('button', 'is-primary', '还钱');
+      const b2 = el('button', 'is-primary', '还');
       b2.type = 'button';
       b2.addEventListener('click', () => openDebtSheet({ party:m.name, type:'debt_repay' }));
-      acts.appendChild(b1); acts.appendChild(b2);
+      const b3 = el('button', null, '明细');
+      b3.type = 'button';
+      b3.addEventListener('click', () => openPersonSheet(m.name));
+      acts.appendChild(b1); acts.appendChild(b2); acts.appendChild(b3);
     } else {
-      const b1 = el('button', null, '再借出');
+      const b1 = el('button', null, '再贷');
       b1.type = 'button';
       b1.addEventListener('click', () => openDebtSheet({ party:m.name, type:'debt_lend' }));
-      const b2 = el('button', 'is-primary', '收回');
+      const b2 = el('button', 'is-primary', '收');
       b2.type = 'button';
       b2.addEventListener('click', () => openDebtSheet({ party:m.name, type:'debt_collect' }));
-      acts.appendChild(b1); acts.appendChild(b2);
+      const b3 = el('button', null, '明细');
+      b3.type = 'button';
+      b3.addEventListener('click', () => openPersonSheet(m.name));
+      acts.appendChild(b1); acts.appendChild(b2); acts.appendChild(b3);
     }
     row.appendChild(acts);
 
@@ -2210,7 +2575,66 @@ function renderDebt(view){
   });
   view.appendChild(list);
 
-  view.appendChild(el('div', 'foot-note', '借入、还钱、借出、收回都不进收支统计，只改往来余额和账户余额'));
+  view.appendChild(el('div', 'foot-note', '借、还、贷、收都不进收支统计，只改往来余额和账户余额'));
+}
+
+/* ---------------------- 某个人的借/贷流水 ---------------------- */
+function openPersonSheet(name){
+  const list = App.records
+    .filter(r => r.party === name && r.type.indexOf('debt_') === 0)
+    .sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+
+  let borrow = 0, repay = 0, lend = 0, collect = 0;
+  list.forEach(r => {
+    if(r.type === 'debt_borrow'){ borrow += r.amount; }
+    else if(r.type === 'debt_repay'){ repay += r.amount; }
+    else if(r.type === 'debt_lend'){ lend += r.amount; }
+    else if(r.type === 'debt_collect'){ collect += r.amount; }
+  });
+  const owe = round2(borrow - repay);
+  const lendNet = round2(lend - collect);
+
+  openSheet(
+    '<div class="sheet-head"><span class="sheet-title">' + escapeHtml(name) + ' · 明细</span>' +
+    '<button class="sheet-close" type="button" data-close>关闭</button></div>' +
+    '<div class="sum">' +
+    '<div class="sum-item"><span class="sum-label">借</span><span class="sum-num is-neg">¥' + money(owe) + '</span></div>' +
+    '<div class="sum-item"><span class="sum-label">贷</span><span class="sum-num">¥' + money(lendNet) + '</span></div>' +
+    '<div class="sum-item"><span class="sum-label">笔数</span><span class="sum-num">' + list.length + '</span></div>' +
+    '</div>' +
+    '<div class="meta">借入 ¥' + money(borrow) + ' · 已还 ¥' + money(repay) +
+    ' · 贷出 ¥' + money(lend) + ' · 已收 ¥' + money(collect) + '</div>' +
+    '<div class="rows" id="personRows"></div>'
+  );
+
+  const wrap = $('#personRows');
+  if(!list.length){
+    wrap.appendChild(el('div', 'empty', '没有明细'));
+    return;
+  }
+
+  list.forEach(r => {
+    const row = el('div', 'row');
+    const time = el('span', 'row-time', dateKey(r.ts).slice(2));
+    time.style.width = '58px';
+    row.appendChild(time);
+
+    const main = el('div', 'row-main');
+    const label = (TX[r.type] || {}).label || '';
+    main.appendChild(el('span', 'row-name', label + (r.note ? ' · ' + r.note : '')));
+    if(r.opening){ main.appendChild(el('span', 'tag is-neutral', '期初')); }
+    else if(r.historical){ main.appendChild(el('span', 'tag is-neutral', '历史')); }
+    main.appendChild(el('span', 'tag is-acc', accountShort(r.account)));
+    row.appendChild(main);
+
+    const incoming = r.type === 'debt_borrow' || r.type === 'debt_collect';
+    row.appendChild(el('span', 'row-amt ' + (incoming ? 'is-in' : 'is-out'),
+      (incoming ? '+' : '-') + money(r.amount)));
+    row.addEventListener('click', () => openRecordSheet(r));
+    wrap.appendChild(row);
+  });
+
+  wrap.appendChild(el('div', 'foot-note', '点某一行可看详情；期初记录不计入账户余额和收支统计'));
 }
 
 /* ---------------------- 设置页 ---------------------- */
@@ -2222,12 +2646,43 @@ function renderSettings(view){
 
   const dataList = el('div', 'list');
   dataList.appendChild(listItem('导入账单（xlsx）', '历史账导入后只读，不参与余额', '导入', () => openImportSheet()));
+  if(!excelFileSupported()){
+    dataList.appendChild(listItem('直接写入 Excel', '当前浏览器不支持；请用 Chrome 132 以上打开', '', null));
+  } else if(!hasExcelHandle()){
+    dataList.appendChild(listItem('直接写入 Excel', '选一个 xlsx，之后每次记账自动覆盖写入（按 23 列重写）', '绑定', bindExcelFile));
+  } else {
+    const when = App.settings.excelWriteAt ? String(App.settings.excelWriteAt).slice(0, 16).replace('T', ' ') : '尚未写入';
+    dataList.appendChild(listItem('写入 Excel', (App.settings.excelHandle.name || '已绑定') + ' · ' + when, '写入', async () => {
+      if(!App.records.length){ showToast('没有记录可以写入', null); return; }
+      const ok = await writeExcelToHandle(App.settings.excelHandle, true);
+      if(ok){
+        App.excelPerm = 'granted';
+        App.settings.excelWriteAt = nowISO();
+        App.settings.lastExportAt = nowISO();
+        await saveSettings(App.settings);
+        render();
+        showToast('已写入 Excel', null);
+      } else {
+        showToast('写入失败，请点“更换”重新选择文件', null);
+      }
+    }));
+    dataList.appendChild(listItem('更换 Excel 文件', '重新选择要覆盖的 xlsx 文件', '更换', bindExcelFile));
+  }
+  dataList.appendChild(listItem('从 Excel 恢复', '用完整备份还原记录、账户和期初', '恢复', restoreFromExcel));
   dataList.appendChild(listItem('导出 Excel', '与你现有账单同格式，23 列', '导出', () => {
     if(!App.records.length){ showToast('还没有数据可以导出', null); return; }
     exportXlsx(App.records, App.settings);
     App.settings.lastExportAt = nowISO();
     saveSettings(App.settings).then(render);
     showToast('已导出 xlsx', null);
+  }));
+  dataList.appendChild(listItem('导出并发送', '手机上直接发到微信或网盘', '发送', async () => {
+    if(!App.records.length){ showToast('还没有数据可以导出', null); return; }
+    const shared = await shareXlsx(App.records, App.settings);
+    App.settings.lastExportAt = nowISO();
+    await saveSettings(App.settings);
+    render();
+    showToast(shared ? '已打开分享，选微信或网盘' : '已下载 xlsx', null);
   }));
   dataList.appendChild(listItem('导出 CSV', '纯文本备份，UTF-8 带 BOM', '导出', () => {
     if(!App.records.length){ showToast('还没有数据可以导出', null); return; }
@@ -2248,44 +2703,17 @@ function renderSettings(view){
   const accList = el('div', 'list');
   App.settings.accounts.forEach(acc => {
     const bal = accountBalance(App.settings, App.records, acc.id);
-    const item = listItem(acc.name, bal === null ? '未校准' : '≈¥' + money(bal), '对账',
+    const item = listItem(acc.name, bal === null ? '未校准' : '≈¥' + moneyAuto(bal), '对账',
       () => openReconcileSheet(acc.id));
     accList.appendChild(item);
   });
   view.appendChild(accList);
 
-  // 模板
-  const tplHead = el('div', 'section-head');
-  tplHead.style.marginTop = '20px';
-  tplHead.appendChild(el('h2', null, '模板金额'));
-  tplHead.appendChild(el('span', 'muted', '改完自动保存'));
-  view.appendChild(tplHead);
-
-  const tplList = el('div', 'list');
-  App.settings.templates.forEach(t => {
-    const item = el('div', 'list-item');
-    const main = el('div', 'li-main');
-    main.appendChild(el('div', 'li-title', t.name));
-    main.appendChild(el('div', 'li-sub', t.category));
-    item.appendChild(main);
-
-    const input = el('input', 'input');
-    input.type = 'number';
-    input.inputMode = 'decimal';
-    input.value = String(t.amount);
-    input.style.width = '88px';
-    input.style.height = '32px';
-    input.style.textAlign = 'right';
-    input.addEventListener('change', () => {
-      const v = parseFloat(input.value);
-      if(!isFinite(v) || v < 0){ input.value = String(t.amount); return; }
-      t.amount = round2(v);
-      saveSettings(App.settings).then(() => showToast('已更新 ' + t.name, null));
-    });
-    item.appendChild(input);
-    tplList.appendChild(item);
-  });
-  view.appendChild(tplList);
+  const addAcc = el('button', 'btn is-block', '+ 添加账户');
+  addAcc.type = 'button';
+  addAcc.style.marginTop = '8px';
+  addAcc.addEventListener('click', openAccountSheet);
+  view.appendChild(addAcc);
 
   // 关于
   const aboutHead = el('div', 'section-head');
@@ -2296,6 +2724,25 @@ function renderSettings(view){
   const about = el('div', 'list');
   about.appendChild(listItem('版本', '1.0 · 本机存储，无服务器', '', null));
   about.appendChild(listItem('数据条数', App.records.length + ' 条', '', null));
+  const mirror = readMirror();
+  about.appendChild(listItem('本机镜像', mirror ? mirror.records.length + ' 条 · ' + String(mirror.at || '').slice(0, 16).replace('T', ' ') : '无', '', null));
+  const st = App.storage || {};
+  about.appendChild(listItem('浏览器', (st.browser || '未知') + (st.standalone ? ' · 桌面图标' : ' · 浏览器内'), '', null));
+  about.appendChild(listItem('当前网址', location.origin === 'null' ? '本地文件' : location.host + location.pathname, '', null));
+  about.appendChild(listItem('存储保护',
+    st.persisted ? '已开启，系统不会轻易清理' : (st.supported ? '普通，可能被系统清理' : '不支持（浏览器限制）'),
+    (st.supported && !st.persisted) ? '开启' : '',
+    (st.supported && !st.persisted) ? async () => {
+      try{
+        const ok = await navigator.storage.persist();
+        App.storage.persisted = ok;
+        render();
+        showToast(ok ? '已开启持久存储' : '浏览器没有授予，建议改用 Chrome 或关闭退出清理', null);
+      }catch(e){ showToast('开启失败，建议改用 Chrome', null); }
+    } : null));
+  if(st.browser === '三星浏览器' && !st.persisted){
+    about.appendChild(listItem('保存提醒', '三星浏览器不支持持久存储。请在浏览器设置 → 隐私 → 关闭“退出时删除浏览数据”，或改用 Chrome 打开', '', null));
+  }
   about.appendChild(listItem('上次导出', App.settings.lastExportAt ? dateKey(App.settings.lastExportAt) : '从未', '', null));
   view.appendChild(about);
 }
@@ -2331,6 +2778,8 @@ async function confirmDeleteHistory(){
   $('#historyConfirm').addEventListener('click', async () => {
     await dbDeleteMany('records', ids);
     App.records = App.records.filter(r => !r.historical);
+    scheduleMirror();
+    scheduleExcelWrite();
     closeSheet();
     render();
     showToast('已删除 ' + ids.length + ' 条历史账', null);
@@ -2348,6 +2797,8 @@ async function confirmClear(){
   $('#clearConfirm').addEventListener('click', async () => {
     await dbClear('records');
     App.records = [];
+    mirrorData();
+    scheduleExcelWrite();
     closeSheet();
     render();
     showToast('已清空', null);
@@ -2451,19 +2902,37 @@ function openEntrySheet(preset){
 }
 
 /* ---------------------- 记录读写 ---------------------- */
+// 旧记录的标签按当前规则补齐，保证每条支出都有标签
+async function normalizeTags(records){
+  const changed = [];
+  records.forEach(r => {
+    if(r.type !== 'expense' || r.opening){ return; }
+    const tag = tagOf(r.category, r.sub);
+    if(r.tag !== tag){ r.tag = tag; changed.push(r); }
+  });
+  if(changed.length){ await dbBulk('records', changed); }
+  return changed.length;
+}
+
 async function saveRecord(rec){
   App.records.push(rec);
   await dbPut('records', rec);
+  scheduleMirror();
+  scheduleExcelWrite();
 }
 async function saveRecords(list){
   list.forEach(r => App.records.push(r));
   await dbBulk('records', list);
+  scheduleMirror();
+  scheduleExcelWrite();
 }
 async function deleteRecordById(id){
   const rec = App.records.find(r => r.id === id);
   if(!rec || rec.readonly){ showToast('历史账不能修改', null); return; }
   await dbDelete('records', id);
   App.records = App.records.filter(r => r.id !== id);
+  scheduleMirror();
+  scheduleExcelWrite();
   render();
 }
 async function deleteGroup(groupId){
@@ -2471,6 +2940,8 @@ async function deleteGroup(groupId){
   if(list.some(r => r.readonly)){ showToast('历史账不能修改', null); return; }
   for(let i = 0; i < list.length; i++){ await dbDelete('records', list[i].id); }
   App.records = App.records.filter(r => r.groupId !== groupId);
+  scheduleMirror();
+  scheduleExcelWrite();
   render();
 }
 
@@ -2488,7 +2959,7 @@ function openRecordSheet(r){
       : '') +
     (r.party ? '<div class="preview-row"><span>对象</span><b>' + escapeHtml(r.party) + '</b></div>' : '') +
     '<div class="preview-row"><span>时间</span><b>' + escapeHtml(String(r.ts).slice(0, 16).replace('T', ' ')) + '</b></div>' +
-    (r.category ? '<div class="preview-row"><span>类别</span><b>' + escapeHtml(r.category) + (r.sub ? ' · ' + escapeHtml(r.sub) : '') + '</b></div>' : '') +
+    (r.category ? '<div class="preview-row"><span>类别</span><b>' + (r.type.indexOf('debt_') === 0 ? '借/贷' : escapeHtml(r.category) + (r.sub ? ' · ' + escapeHtml(r.sub) : '')) + '</b></div>' : '') +
     (r.note ? '<div class="preview-row"><span>备注</span><b>' + escapeHtml(r.note) + '</b></div>' : '') +
     '</div>';
 
@@ -2776,7 +3247,7 @@ function openOpeningSheet(){
   openSheet(
     '<div class="sheet-head"><span class="sheet-title">设置当前余额</span>' +
     '<button class="sheet-close" type="button" data-close>关闭</button></div>' +
-    '<div class="hint">每行一个对象，格式：名字 金额。正数=我欠，负数=别人欠我。保存后会替换上次的期初值，不影响账户余额和收支统计。</div>' +
+    '<div class="hint">每行一个对象，格式：名字 金额。正数=借（别人借给我），负数=贷（我借给别人）。保存后会替换上次的期初值，不影响账户余额和收支统计。</div>' +
     '<div class="field"><textarea class="input" id="opText" rows="7" placeholder="吴 3400&#10;唐 10500">' + escapeHtml(lines.join('\n')) + '</textarea></div>' +
     '<div class="hint" id="opHint"></div>' +
     '<div class="sheet-actions"><button class="btn" type="button" data-close>取消</button>' +
@@ -2818,7 +3289,7 @@ function openOpeningSheet(){
         amount: Math.abs(item.amount),
         account: App.ui.account,
         toAccount: null,
-        category: '借贷',
+        category: '借/贷',
         sub: '',
         tag: '',
         note: '期初余额',
@@ -2839,6 +3310,102 @@ function openOpeningSheet(){
   });
 }
 
+/* ---------------------- 绑定 Excel 文件 ---------------------- */
+async function bindExcelFile(){
+  if(!App.records.length){ showToast('当前没有记录，先记一笔再绑定，避免覆盖空表', null); return; }
+  try{
+    const handle = await pickExcelFile();
+    const existing = await countExcelRows(handle);
+    if(existing > App.records.length){
+      const go = window.confirm('这个 Excel 里已有 ' + existing + ' 行，App 目前只有 ' + App.records.length + ' 条。\n继续会按 App 的数据覆盖整个文件，确定吗？');
+      if(!go){ return; }
+    }
+    App.settings.excelHandle = handle;
+    const ok = await writeExcelToHandle(handle, true);
+    if(ok){
+      App.excelPerm = 'granted';
+      App.settings.excelWriteAt = nowISO();
+      App.settings.lastExportAt = nowISO();
+    }
+    await saveSettings(App.settings);
+    render();
+    showToast(ok ? '已绑定并写入 Excel' : '已绑定，写入失败，请再点“写入 Excel”', null);
+  }catch(e){
+    if(!e || e.name !== 'AbortError'){ showToast('没有选择文件', null); }
+  }
+}
+
+/* ---------------------- 从 Excel 恢复 ---------------------- */
+function restoreFromExcel(){
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    input.remove();
+    if(!file){ return; }
+    try{
+      const backup = await parseBackupXlsx(file);
+      if(!backup){
+        showToast('这不是完整备份，请用“导入账单”导入流水', null);
+        return;
+      }
+      if(!backup.records.length){ showToast('备份里没有记录', null); return; }
+      const go = window.confirm('将用备份覆盖当前 ' + App.records.length + ' 条记录、账户和期初设置。\n备份共 ' + backup.records.length + ' 条，确定恢复吗？');
+      if(!go){ return; }
+      const handle = App.settings.excelHandle;
+      App.records = backup.records;
+      await dbReplace('records', App.records);
+      App.settings = Object.assign({}, App.settings, backup.settings || {});
+      if(handle){ App.settings.excelHandle = handle; }
+      if(!Array.isArray(App.settings.accounts) || !App.settings.accounts.length){
+        App.settings.accounts = JSON.parse(JSON.stringify(DEFAULT_SETTINGS.accounts));
+      }
+      if(!accountById(App.settings, App.ui.account)){ App.ui.account = App.settings.accounts[0].id; }
+      await saveSettings(App.settings);
+      await refreshExcelPermission();
+      mirrorData();
+      render();
+      showToast('已恢复 ' + App.records.length + ' 条记录', null);
+    }catch(e){
+      showToast('恢复失败：' + (e.message || '文件无法读取'), null);
+    }
+  });
+  input.click();
+}
+
+/* ---------------------- 添加账户 ---------------------- */
+function openAccountSheet(){
+  openSheet(
+    '<div class="sheet-head"><span class="sheet-title">添加账户</span>' +
+    '<button class="sheet-close" type="button" data-close>关闭</button></div>' +
+    '<div class="field"><label class="field-label">名称</label>' +
+    '<input class="input" id="accName" type="text" placeholder="如 招商银行"></div>' +
+    '<div class="field"><label class="field-label">简称</label>' +
+    '<input class="input" id="accShort" type="text" placeholder="流水里显示，如 招行"></div>' +
+    '<div class="hint">添加后点“对账”填入当前余额，之后记账就能选它。</div>' +
+    '<div class="sheet-actions"><button class="btn" type="button" data-close>取消</button>' +
+    '<button class="btn is-primary" type="button" id="accSave">保存</button></div>'
+  );
+
+  $('#accSave').addEventListener('click', async () => {
+    const name = String($('#accName').value || '').trim();
+    if(!name){ showToast('请填写账户名称', null); return; }
+    let short = String($('#accShort').value || '').trim();
+    if(!short){ short = name.slice(0, 4); }
+    short = short.slice(0, 4);
+    const acc = { id: uid('a'), name: name, short: short, excel: name, anchor: null, anchorAt: null };
+    App.settings.accounts.push(acc);
+    await saveSettings(App.settings);
+    App.ui.account = acc.id;
+    closeSheet();
+    render();
+    showToast('已添加 ' + name + '，可点对账填余额', null);
+  });
+}
+
 /* ---------------------- 借贷弹层 ---------------------- */
 function openDebtSheet(preset){
   const p = preset || {};
@@ -2846,14 +3413,14 @@ function openDebtSheet(preset){
     '<option value="' + escapeHtml(a.id) + '"' + (a.id === App.ui.account ? ' selected' : '') + '>' + escapeHtml(a.name) + '</option>').join('');
 
   openSheet(
-    '<div class="sheet-head"><span class="sheet-title">借贷</span>' +
+    '<div class="sheet-head"><span class="sheet-title">借 / 贷</span>' +
     '<button class="sheet-close" type="button" data-close>关闭</button></div>' +
     '<div class="field"><label class="field-label">方向</label>' +
     '<select class="select" id="dbType">' +
-    '<option value="debt_borrow">借入（别人借给我）</option>' +
-    '<option value="debt_repay">还钱（我还别人）</option>' +
-    '<option value="debt_lend">借出（我借给别人）</option>' +
-    '<option value="debt_collect">收回（别人还我）</option>' +
+    '<option value="debt_borrow">借（别人借给我）</option>' +
+    '<option value="debt_repay">还（我还别人）</option>' +
+    '<option value="debt_lend">贷（我借给别人）</option>' +
+    '<option value="debt_collect">收（别人还我）</option>' +
     '</select></div>' +
     '<div class="field"><label class="field-label">对象</label>' +
     '<input class="input" id="dbParty" type="text" placeholder="姓名或机构" value="' + escapeHtml(p.party || '') + '"></div>' +
@@ -2863,7 +3430,7 @@ function openDebtSheet(preset){
     '<select class="select" id="dbAccount">' + accOptions + '</select></div>' +
     '<div class="field"><label class="field-label">备注</label>' +
     '<input class="input" id="dbNote" type="text" placeholder="可不填"></div>' +
-    '<div class="hint" id="dbHint">借贷不计入收支，只影响往来余额和账户余额</div>' +
+    '<div class="hint" id="dbHint">借、还、贷、收不计入收支，只影响往来余额和账户余额</div>' +
     '<div class="sheet-actions"><button class="btn" type="button" data-close>取消</button>' +
     '<button class="btn is-primary" type="button" id="dbSave">保存</button></div>'
   );
@@ -2883,7 +3450,7 @@ function openDebtSheet(preset){
       amount: round2(v),
       account: $('#dbAccount').value,
       toAccount: null,
-      category: '借贷',
+      category: '借/贷',
       sub: '',
       tag: '',
       note: normalizeNote($('#dbNote').value),
@@ -2926,12 +3493,12 @@ function openImportSheet(){
         '<div class="preview-row"><span>日期范围</span><b>' + String(parsed.minTs).slice(0, 10) + ' ~ ' + String(parsed.maxTs).slice(0, 10) + '</b></div>';
       const debtCount = (parsed.repayCount || 0) + (parsed.borrowCount || 0);
       if(debtCount){
-        html += '<div class="preview-row"><span>疑似借贷</span><b>' + debtCount + ' 笔 ¥' + money(parsed.debtAmount) + '</b></div>';
-        html += '<div class="preview-row"><span>其中</span><b>借入/收回 ' + (parsed.borrowCount || 0) + ' 笔 · 还钱/借出 ' + (parsed.repayCount || 0) + ' 笔</b></div>';
+        html += '<div class="preview-row"><span>疑似借/贷</span><b>' + debtCount + ' 笔 ¥' + moneyAuto(parsed.debtAmount) + '</b></div>';
+        html += '<div class="preview-row"><span>其中</span><b>借/收 ' + (parsed.borrowCount || 0) + ' 笔 · 还/贷 ' + (parsed.repayCount || 0) + ' 笔</b></div>';
       }
       html += '</div>';
       if(debtCount){
-        html += '<div class="field"><label class="field-label"><input type="checkbox" id="impRepay" checked> 按借贷导入（借入 / 还钱 / 借出 / 收回），不计入收支</label></div>';
+        html += '<div class="field"><label class="field-label"><input type="checkbox" id="impRepay" checked> 按借/贷导入（借 / 还 / 贷 / 收），不计入收支</label></div>';
       }
       $('#impPreview').innerHTML = html;
       $('#impSave').disabled = false;
@@ -2995,6 +3562,18 @@ $('#toastUndo').addEventListener('click', () => {
 });
 
 document.addEventListener('DOMContentLoaded', boot);
+
+// 离开页面前把镜像和 Excel 写完整
+window.addEventListener('pagehide', () => {
+  mirrorData();
+  flushExcelWrite();
+});
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden'){
+    mirrorData();
+    flushExcelWrite();
+  }
+});
 
 </script>
 </body>
